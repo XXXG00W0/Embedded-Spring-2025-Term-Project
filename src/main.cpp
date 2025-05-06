@@ -71,13 +71,14 @@ void read_accel(int16_t &ax, int16_t &ay, int16_t &az)
     az = (int16_t)(data[5] << 8 | data[4]);
 }
 
-// Calculate the magnitude of the acceleration vector
-void vector_magnitude(int16_t x, int16_t y, int16_t z, float32_t *result)
-{
-    float32_t sum_of_squares = (float32_t)(x * x + y * y + z * z);
-    arm_sqrt_f32(sum_of_squares, result);
-}
+// // Calculate the magnitude of the acceleration vector
+// void vector_magnitude(int16_t x, int16_t y, int16_t z, float32_t *result)
+// {
+//     float32_t sum_of_squares = (float32_t)(x * x + y * y + z * z);
+//     arm_sqrt_f32(sum_of_squares, result);
+// }
 
+// Collect data from accelerometer
 void collect_accel_data(){
     int16_t ax, ay, az;
 
@@ -96,7 +97,7 @@ void collect_accel_data(){
     for (unsigned int i = 0; i < SAMPLES_PER_INTERVAL; i++){
         // Wait for ticker to do a sample
         while (!sample_ready){
-            ThisThread::yield();
+            ThisThread::yield(); // Could cause busy waiting
         }
 
         sample_ready = false;
