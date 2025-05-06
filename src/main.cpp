@@ -1,5 +1,6 @@
 #include "mbed.h"
 #include "arm_math.h"
+#include <chrono>
 
 BufferedSerial serial_port(USBTX, USBRX, 115200);
 FileHandle *mbed::mbed_override_console(int)
@@ -8,8 +9,9 @@ FileHandle *mbed::mbed_override_console(int)
 }    
 
 // LED pins
-DigitalOut led_tremor(LED1, 0);
-DigitalOut led_dyskinesia(LED2, 0);
+DigitalOut led_tremor(LED1);
+DigitalOut led_dyskinesia(LED2);
+// Initialize LED state to off in the main function
 
 // I2C pins：SDA=PB_11, SCL=PB_10（B-L475E-IOT01A）
 I2C i2c(PB_11, PB_10);
@@ -32,6 +34,17 @@ enum State
 };
 State last_state = NONE;
 State this_state = NONE;
+uint32_t blink_period_ms; // Blink period in milliseconds
+
+Ticker led_ticker; // Ticker for LED blinking
+void toggle_led(){
+    // printf("Toggling LED\n");
+    if(this_state == TREMOR){
+        led_tremor = !led_tremor; // Toggle tremor LED
+    } else if(this_state == DYSKINESIA){
+        led_dyskinesia = !led_dyskinesia; // Toggle dyskinesia LED
+    }
+}
 
 // Threshold for detection (calibration required)
 // #define THRESHOLD 100.0f
@@ -39,8 +52,10 @@ State this_state = NONE;
 // Settings for 3-second intervals at 20Hz sampling rate
 #define INTERVAL_SECONDS 3
 #define FFT_SIZE 256
-#define SAMPLE_RATE 50 // 50Hz
-#define SAMPLES_PER_INTERVAL (SAMPLE_RATE * INTERVAL_SECONDS) // 50 * 3 = 150 samples
+#define SAMPLE_RATE 100 // 100Hz
+#define SAMPLER_TICK_PERIOD_US (1000000 / SAMPLE_RATE) // 10ms
+// #define SAMPLES_PER_INTERVAL (SAMPLE_RATE * INTERVAL_SECONDS) // 50 * 3 = 150 samples
+#define SAMPLES_PER_INTERVAL 256
 #define RESOLUTION (SAMPLE_RATE / (float)FFT_SIZE)
 #define MAGNITUDE_THRESHOLD 1.0f 
 
@@ -93,7 +108,8 @@ void collect_accel_data(){
     };
 
     sampler_timer.start();
-    sampler_ticker.attach(sample_ready_trigger, 20ms); // 50Hz
+    auto sample_interval_us = chrono::microseconds(SAMPLER_TICK_PERIOD_US);
+    sampler_ticker.attach(sample_ready_trigger, sample_interval_us);
     for (unsigned int i = 0; i < SAMPLES_PER_INTERVAL; i++){
         // Wait for ticker to do a sample
         while (!sample_ready){
@@ -116,11 +132,8 @@ void process_FFT() {
     memset(fft_input, 0, sizeof(fft_input));
     
     // Define a window function (Hanning window) for the actual sample size
-    float32_t window[SAMPLES_PER_INTERVAL];
-    for (int i = 0; i < SAMPLES_PER_INTERVAL; i++) {
-        // Manual Hanning window calculation if arm_hanning_f32 is not available
-        window[i] = 0.5f * (1.0f - cosf(2.0f * PI * i / (SAMPLES_PER_INTERVAL - 1)));
-    }
+    float32_t window[FFT_SIZE];
+    arm_hanning_f32(window, FFT_SIZE);
     
     float32_t x_mean = 0.0f, y_mean = 0.0f, z_mean = 0.0f;
     // Calculate mean values for each axis
@@ -128,9 +141,9 @@ void process_FFT() {
     arm_mean_f32(accel_data[1], SAMPLES_PER_INTERVAL, &y_mean);
     arm_mean_f32(accel_data[2], SAMPLES_PER_INTERVAL, &z_mean);
     
-    // Scale factor for normalization (adjust based on your sensor's full scale range)
-    // For ±2g range, full scale is typically 32768 (for 16-bit values)
-    const float32_t scale_factor = 16384.0f; // = 2^14 LSB/g for ±2g range
+    // Scale factor for normalization
+    // For +/-2g range, full scale is typically 32768 (for 16-bit values)
+    const float32_t scale_factor = 16384.0f; // = 2^14 LSB/g for +/-2g range
     
     // Apply the window function, remove DC bias, and normalize
     for (int i = 0; i < SAMPLES_PER_INTERVAL; i++) {
@@ -165,21 +178,30 @@ void analyze_frequency(float32_t* max_magnitude, float32_t* peak_freq) {
         end_index = FFT_SIZE / 2;
     }
 
+    // Find maximal magnitude in the specified range
     arm_max_f32(&magnitude[start_index], end_index - start_index, max_magnitude, &max_index);
     max_index += start_index; // Adjust index to the full range
 
-    *peak_freq = max_index * RESOLUTION; // Convert index to frequency
+    if (*max_magnitude < MAGNITUDE_THRESHOLD) {
+        *peak_freq = 0.0f; // No significant peak detected
+    }else{
+        *peak_freq = max_index * RESOLUTION; // Convert index to frequency
+    }
 
     // Print analysis results
     printf("Analysis range: %.1f-%.1f Hz\n", min_freq, max_freq);
     printf("Max Magnitude: %.2f at Bin %lu (%.2f Hz)\n", *max_magnitude, max_index, *peak_freq);
-
 }
 
 void update_indicator(float32_t max_magnitude, float32_t peak_freq){
 
     // normalize magnitude for intensity display with LED blink
-    // float intensity = fminf(max_magnitude / 100.0f, 1.0f); // Normalize to [0, 1]
+    float intensity = fminf(max_magnitude / 100.0f, 1.0f); // Normalize to [0, 1]
+    blink_period_ms = (uint32_t)(1000 * (1.0f - intensity)); // Blink period in milliseconds
+    if (blink_period_ms < 100) {
+        blink_period_ms = 100; // Minimum blink period
+    }
+    printf("Blink period: %lu ms\n", blink_period_ms);
 
     // Determine state based on frequency
     this_state = NONE;
@@ -189,24 +211,24 @@ void update_indicator(float32_t max_magnitude, float32_t peak_freq){
         this_state = DYSKINESIA;
     }
     printf("State: %d\n", this_state);
-    
-    // Update led if state changes and magnitude exceeds threashold
-    if (this_state != last_state && max_magnitude > MAGNITUDE_THRESHOLD) {
-        if (this_state == TREMOR) {
-            led_tremor = 1; // Turn on tremor LED
-            led_dyskinesia = 0; // Turn off dyskinesia LED
-        } else if (this_state == DYSKINESIA) {
-            led_dyskinesia = 1; // Turn on dyskinesia LED
+
+    // LED blink based on magnitude
+    if (this_state != last_state) {
+        // turn off old ticker
+        led_ticker.detach();    
+        led_tremor = 0;
+        led_dyskinesia = 0;
+        
+        if (this_state != NONE) {
+            // convert miliseconds to microseconds
+            auto blink_period_us = std::chrono::duration<uint32_t, std::milli>(blink_period_ms);
+            led_ticker.attach(&toggle_led, blink_period_us);
+        }else{
             led_tremor = 0; // Turn off tremor LED
-        } else {
-            led_tremor = 0; // Turn off both LEDs
-            led_dyskinesia = 0;
+            led_dyskinesia = 0; // Turn off dyskinesia LED
         }
+        last_state = this_state;
     }
-    last_state = this_state;
-
-    // to-do: add intensity control for LED blink frequency
-
 }
 
 // Initialize the LSM6DSL accelerometer
@@ -244,9 +266,13 @@ int main()
     printf("LSM6DSL detected! WHO_AM_I = 0x%X\r\n", whoami);
     init_lsm6dsl();
 
+    led_tremor = 0; // Initialize LED state to off
+    led_dyskinesia = 0; // Initialize LED state to off
 
     while (true)
     {
+        // led_dyskinesia = 1;
+        // led_tremor = 1;
         collect_accel_data();
         process_FFT();
         float32_t max_magnitude, peak_freq;
