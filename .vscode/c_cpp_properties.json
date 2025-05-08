@@ -791,6 +791,7 @@
                 "STM32L4",
                 "STM32L475xx",
                 "ARM_MATH_CM4",
+                "COMPONENT_BLE=1",
                 "COMPONENT_BlueNRG_MS=1",
                 "COMPONENT_FLASHIAP=1",
                 "COMPONENT_QSPIF=1",
