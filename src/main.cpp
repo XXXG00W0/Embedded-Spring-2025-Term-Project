@@ -30,8 +30,8 @@ using namespace events;
 
 // Buffer Configuration
 #define FIFO_SIZE 512                      // Size of the FIFO buffer
-#define HISTORY_STATE_LENGTH 20            // Length of state history buffer
-#define HISTORY_MAG_LENGTH 20              // Length of magnitude history buffer
+#define HISTORY_STATE_LENGTH 5             // Length of state history buffer
+#define HISTORY_MAG_LENGTH 5               // Length of magnitude history buffer
 
 //------------------------------------------------------------------------------
 // Global Variables
@@ -248,6 +248,8 @@ void send_ble_state() {
         movement_buffer,
         movement_length
     );
+
+    printf("BLE Notification: %s\n", movement_buffer);
 
 }
 

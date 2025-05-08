@@ -858,7 +858,6 @@
                 "__FPU_PRESENT=1",
                 "__MBED_CMSIS_RTOS_CM",
                 "__MBED__=1",
-                "__PLATFORMIO_BUILD_DEBUG__",
                 ""
             ],
             "cStandard": "gnu11",
