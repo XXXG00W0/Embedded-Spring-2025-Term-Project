@@ -32,4 +32,3 @@
 *.app
 /.pio/libdeps/disco_l475vg_iot01a/mbed-dsp
 /.pio
-/lib
