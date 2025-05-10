@@ -1,3 +1,10 @@
+// Project members
+// Clarence Luo cl5672
+// Hongyu Jin hj2806
+// Kailin Zhang kz2739
+// Yumeng Qian yq2480
+// Ziyi Liang zl5604
+
 #include "mbed.h"
 #include "arm_math.h"
 #include <chrono>
